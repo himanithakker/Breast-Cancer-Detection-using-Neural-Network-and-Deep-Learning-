@@ -1,0 +1,514 @@
+"""
+IE7615 : Deep Learning and Neural Network
+Author : Aditya Agarwal, Pushkar Dhabe, Himani Thakker
+Date : 12/07/2022
+
+This Python file includes : Convolution Neural network model to detect breast cancer
+
+Two different datasets are used : 
+1. MIAS
+2. INBreast
+
+"""
+######### For MIAS Dataset
+
+# Importing Libraries
+import pandas as pd
+import numpy as np
+import pydot
+import matplotlib.pyplot as plt
+import cv2
+import os
+from numpy.random import seed
+seed(101)
+
+import tensorflow
+from keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, Conv2D, MaxPooling2D, Flatten
+from tensorflow.keras.metrics import categorical_crossentropy
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.models import Model
+
+import h5py
+from keras.utils import np_utils
+from keras import backend as K
+from keras.models import load_model 
+from keras.utils.vis_utils import plot_model
+from sklearn.metrics import classification_report
+from sklearn.model_selection import train_test_split
+
+import timeit
+import warnings
+warnings.filterwarnings("ignore")
+
+## loading the MIAS data
+folder_path_MIAS = 'E:/NN project/Dataset of Mammography with Benign Malignant Breast Masses/MIAS Dataset/'
+num_of_epochs = 100
+batchsize = 128
+image_class_label = 0
+Mias_data_labels = []
+Mias_data_images = []
+
+def loading_images_from_folder(folder, image_class_label):
+	for file_name in os.listdir(folder):
+		og_img = cv2.imread(os.path.join(folder, file_name))
+		if og_img is not None:
+			og_img = cv2.resize(og_img, (140,92))  ## resizing the image
+			og_img = og_img.reshape(92,140,3)
+			Mias_data_images.append(og_img)				 ## Appending all the resized Images
+			Mias_data_labels.append(image_class_label)		 ## Adding the respective labels
+		
+	image_class_label += 1
+	return image_class_label
+
+
+image_class_label = loading_images_from_folder(folder_path_MIAS+'Malignant Masses', image_class_label)
+image_class_label = loading_images_from_folder(folder_path_MIAS+'Benign Masses', image_class_label)
+
+# converting the images to an array
+MIAS_Data = np.asarray(Mias_data_images)
+MIAS_Labels = np.asarray(Mias_data_labels)
+
+# Splitting the "MIAS" Data as Train, Validation and Test
+X_train, X_test, y_train, y_test = train_test_split(MIAS_Data, MIAS_Labels, test_size=0.2, random_state=21)
+X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=0.1)
+
+## Size of dataset before Normalization
+print("Before Normalization -")
+print("Shape of X Train = ", X_train.shape, "Shape of X test = ", X_test.shape)
+print("Shape of Y Train = ", y_train.shape,"Shape of Y Test = ", y_test.shape)
+print("Shape of X Validation = ", X_valid.shape, "Shape of Y Validation = ", y_valid.shape)
+
+# Normalizing the data
+X_train = X_train / 255  ## original scale : 255
+X_valid = X_valid / 255         ## new image scale : 0-1
+X_test = X_test / 255
+# one hot encode outputs
+y_train = np_utils.to_categorical(y_train)
+y_valid = np_utils.to_categorical(y_valid)
+y_test = np_utils.to_categorical(y_test)
+number_of_classes = y_test.shape[1]
+
+# Printing the results After Normalization
+print("After Normalization -")
+print("Shape of X Train = ", X_train.shape, "Shape of X test = ", X_test.shape)
+print("Shape of Y Train = ", y_train.shape, "Shape of Y Test = ", y_test.shape)
+print("Shape of X Validation = ", X_valid.shape, "Shape of Y Validation = ", y_valid.shape)
+
+# Showing the Images
+plt.figure(figsize=(11,3))
+for i in range(10):
+  plt.subplot(2,5,1+i)
+  plt.imshow(X_train[i], cmap='gray')
+
+
+#### BASIC CNN model for MIAS Dataset
+def basic_breastCancer_model():
+	basic_model = Sequential()
+	basic_model.add(Conv2D(32, (3, 3), padding="same", input_shape=(92,140,3), activation='relu'))
+	basic_model.add(MaxPooling2D(pool_size=(2, 2)))
+	basic_model.add(Conv2D(32, (3, 3), activation='relu', padding = 'same'))
+	basic_model.add(MaxPooling2D(pool_size=(2, 2)))
+	basic_model.add(Flatten())
+	basic_model.add(Dropout(0.5))
+	basic_model.add(Dense(50, activation='relu'))
+	basic_model.add(Dropout(0.2))
+	basic_model.add(Dense(number_of_classes, activation='softmax'))
+
+	basic_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+	return basic_model
+
+
+# Building the model
+basic_model = basic_breastCancer_model()
+basic_model.summary()
+
+# Fitting the CNN model
+start = timeit.default_timer()
+hist = basic_model.fit(X_train, y_train, validation_data=(X_valid, y_valid),
+                         batch_size=batchsize, epochs=num_of_epochs)
+stop = timeit.default_timer()
+print("Time: ", round((stop - start),2), "seconds")
+
+# Final evaluation of the model
+scores = basic_model.evaluate(X_test, y_test, batch_size=batchsize)
+print("The Accuracy For Basic CNN Model for MIAS Dataset:", round(scores[1]*100,3), "%")
+
+# Saving the basic model
+basic_model.save('basic_model_breastCancer_MIAS.h5')
+
+# visualizing losses and accuracy
+train_accuracy = hist.history['accuracy']
+val_accuracy = hist.history['val_accuracy']
+train_loss = hist.history['loss']
+val_loss = hist.history['val_loss']
+
+# Losses
+xc = range(num_of_epochs)
+plt.figure(figsize=(5,7))
+plt.plot(xc, val_loss)
+plt.plot(xc, train_loss)
+plt.xlabel('Number of Epochs')
+plt.ylabel('Loss')
+plt.legend(['Training Loss','Validation Loss'], loc=3)
+plt.title('Training Loss V/s Validation Loss')
+plt.grid(True)
+
+# Accuracy
+xc = range(num_of_epochs)
+plt.figure(figsize=(5,7))
+plt.plot(xc, val_accuracy)
+plt.plot(xc, train_accuracy)
+plt.xlabel('Number of Epochs')
+plt.ylabel('Accuracy')
+plt.legend(['Training Acc','Validation Acc'], loc=4)
+plt.title('Training Accuracy V/s Validation Accuracy')
+plt.grid(True)
+
+# Testing a random image in MIAS Data
+print("Testing a Random Malignant Image in MIAS Dataset -")
+loc = 'E:/NN project/Dataset of Mammography with Benign Malignant Breast Masses/MIAS Dataset/test/Malignant Masses/mdb023 (2).png'
+test_image = cv2.imread(loc)
+test_image= cv2.resize(test_image, (140,92))
+test_image = np.array(test_image)
+test_image = test_image.astype('float32')
+test_image = test_image/255
+test_image = np.expand_dims(test_image, axis=0)
+
+print("Shape of test image -", test_image.shape)
+print("Predicted accuracies -", basic_model.predict(test_image))
+predict_x_value = basic_model.predict(test_image) 
+classes_x=np.argmax(predict_x_value, axis=1)
+print("Predicted class -", classes_x)
+
+# Classification Report 
+y_pred_value = basic_model.predict(X_test)
+yhat_classes = np.argmax(y_pred_value,axis=1)
+
+y_test_value = np.argmax(y_test, axis=1)
+print(classification_report(y_test_value, yhat_classes))
+
+##### Advanced CNN model for MIAS Dataset - Adding more layers to the model
+def adv_breastCancer_model():
+	adv_model = Sequential()
+	adv_model.add(Conv2D(32, (3, 3), input_shape=(92,140,3), activation='relu', padding="same"))
+	adv_model.add(MaxPooling2D(pool_size=(2, 2)))
+	adv_model.add(Conv2D(32, (3, 3), activation='relu', padding = 'same'))  
+	adv_model.add(MaxPooling2D(pool_size=(2, 2)))
+	adv_model.add(Conv2D(64, (3, 3), activation='relu', padding = 'same'))  ## new layer added
+	adv_model.add(MaxPooling2D(pool_size=(2, 2)))
+	adv_model.add(Conv2D(128, (3, 3), activation='relu', padding = 'same'))  ## new layer added
+	adv_model.add(MaxPooling2D(pool_size=(2, 2)))
+	adv_model.add(Dropout(0.5))
+	adv_model.add(Flatten())
+	adv_model.add(Dropout(0.5))
+	#adv_model.add(Dense(64, activation='relu'))
+	#adv_model.add(Dropout(0.5))
+	adv_model.add(Dense(50, activation='relu'))		 ## new layer added
+	adv_model.add(Dropout(0.2))
+	adv_model.add(Dense(number_of_classes, activation='softmax'))
+
+	adv_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+	return adv_model
+
+# Building the model
+adv_model = adv_breastCancer_model()
+adv_model.summary()
+
+# Fitting the CNN model
+start = timeit.default_timer()
+adv_hist = adv_model.fit(X_train, y_train, validation_data=(X_valid, y_valid), 
+                            batch_size=batchsize, epochs=num_of_epochs)
+stop = timeit.default_timer()
+print("Time: ", round((stop - start),2), "seconds")
+
+# Final evaluation of the model
+adv_scores = adv_model.evaluate(X_test, y_test, batch_size=batchsize)
+print("The Accuracy For Advanced CNN Model for MIAS Dataset:", round(adv_scores[1]*100,3), "%")
+
+# Saving the model
+adv_model.save('adv_model_breastCancer_MIAS.h5')
+
+# visualizing losses and accuracy
+train_accuracy = adv_hist.history['accuracy']
+val_accuracy = adv_hist.history['val_accuracy']
+train_loss = adv_hist.history['loss']
+val_loss = adv_hist.history['val_loss']
+
+# Losses
+xc = range(num_of_epochs)
+plt.figure(figsize=(5,7))
+plt.plot(xc, val_loss)
+plt.plot(xc, train_loss)
+plt.xlabel('Number of Epochs')
+plt.ylabel('Loss')
+plt.legend(['Training Loss','Validation Loss'], loc=3)
+plt.title('Training Loss V/s Validation Loss')
+plt.grid(True)
+
+# Accuracy
+xc = range(num_of_epochs)
+plt.figure(figsize=(5,7))
+plt.plot(xc, val_accuracy)
+plt.plot(xc, train_accuracy)
+plt.xlabel('Number of Epochs')
+plt.ylabel('Accuracy')
+plt.legend(['Training Acc','Validation Acc'], loc=4)
+plt.title('Training Accuracy V/s Validation Accuracy')
+plt.grid(True)
+
+# Testing a random image in MIAS Data
+print("Testing a Random Malignant Image in MIAS Dataset -")
+loc = 'E:/NN project/Dataset of Mammography with Benign Malignant Breast Masses/MIAS Dataset/test/Malignant Masses/mdb023 (2).png'
+test_image = cv2.imread(loc)
+test_image = cv2.resize(test_image, (140,92))
+test_image = np.array(test_image)
+test_image = test_image.astype('float32')
+test_image = test_image/255
+test_image = np.expand_dims(test_image, axis=0)
+
+print("Shape of test image -", test_image.shape)
+print("Predicted accuracies -", adv_model.predict(test_image))
+predict_x_value = adv_model.predict(test_image) 
+classes_x=np.argmax(predict_x_value, axis=1)
+print("Predicted class -", classes_x)
+
+# Classification Report 
+y_pred_value = adv_model.predict(X_test, verbose=1)
+yhat_classes = np.argmax(y_pred_value, axis=1)
+
+y_test_value = np.argmax(y_test, axis=1)
+print(classification_report(y_test_value, yhat_classes))
+
+##########################################################################################################################
+
+######### For InBreast Datast
+
+## loading the INbreast data
+folder_path_INbreast = 'E:/NN project/Dataset of Mammography with Benign Malignant Breast Masses/INbreast Dataset/'
+num_of_epochs = 100
+batchsize = 128
+image_class_label = 0
+INbreast_data_labels = []
+INbreast_data_images = []
+
+def loading_images_from_folder(folder, image_class_label):
+	for file_name in os.listdir(folder):
+		og_img = cv2.imread(os.path.join(folder, file_name))
+		if og_img is not None:
+			og_img = cv2.resize(og_img, (140,92))  ## resizing the image
+			og_img = og_img.reshape(92,140,3)
+			INbreast_data_images.append(og_img)				 ## Appending all the resized Images
+			INbreast_data_labels.append(image_class_label)		 ## Adding the respective labels
+		
+	image_class_label += 1
+	return image_class_label
+
+image_class_label = loading_images_from_folder(folder_path_INbreast+'Malignant Masses', image_class_label)
+image_class_label = loading_images_from_folder(folder_path_INbreast+'Benign Masses', image_class_label)
+# converting the images to an array
+INbreast_Data = np.asarray(INbreast_data_images)
+INbreast_Labels = np.asarray(INbreast_data_labels)
+print("Shape of InBreast Data - ", INbreast_Data.shape)
+
+# Splitting the "INbreast" Data as Train, Validation and Test
+X_train, X_test, y_train, y_test = train_test_split(INbreast_Data, INbreast_Labels, test_size=0.2, random_state=21)
+X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=0.1)
+
+## Size of dataset before Normalization
+print("Before Normalization -")
+print("Shape of X Train = ", X_train.shape, "Shape of X test = ", X_test.shape)
+print("Shape of Y Train = ", y_train.shape, "Shape of Y Test = ", y_test.shape)
+print("Shape of X Validation = ", X_valid.shape, "Shape of Y Validation = ", y_valid.shape)
+
+# Normalizing the data
+X_train = X_train / 255  ## original scale : 255
+X_valid = X_valid / 255         ## new image scale : 0-1
+X_test = X_test / 255
+# one hot encode outputs
+y_train = np_utils.to_categorical(y_train)
+y_valid = np_utils.to_categorical(y_valid)
+y_test = np_utils.to_categorical(y_test)
+number_of_classes = y_test.shape[1]
+
+# Printing the results After Normalization
+print("After Normalization -")
+print("Shape of X Train = ", X_train.shape, "Shape of X test = ", X_test.shape)
+print("Shape of Y Train = ", y_train.shape, "Shape of Y Test = ", y_test.shape)
+print("Shape of X Validation = ", X_valid.shape, "Shape of Y Validation = ", y_valid.shape)
+
+# Showing the Images
+plt.figure(figsize=(11,3))
+for i in range(10):
+  plt.subplot(2,5,1+i)
+  plt.imshow(X_train[i], cmap='gray')
+
+#### BASIC CNN model for INbreast Dataset
+def basic_breastCancer_model():
+	basic_model = Sequential()
+	basic_model.add(Conv2D(32, (3, 3), padding="same", input_shape=(92,140,3), activation='relu'))
+	basic_model.add(MaxPooling2D(pool_size=(2, 2)))
+	basic_model.add(Conv2D(32, (3, 3), activation='relu', padding = 'same'))
+	basic_model.add(MaxPooling2D(pool_size=(2, 2)))
+	basic_model.add(Flatten())
+	basic_model.add(Dropout(0.5))
+	basic_model.add(Dense(50, activation='relu'))
+	basic_model.add(Dropout(0.2))
+	basic_model.add(Dense(number_of_classes, activation='softmax'))
+
+	basic_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+	return basic_model
+
+# Building the model
+basic_model = basic_breastCancer_model()
+basic_model.summary()
+
+# Fitting the CNN model
+start = timeit.default_timer()
+hist = basic_model.fit(X_train, y_train, validation_data=(X_valid, y_valid),
+                         batch_size=batchsize, epochs=num_of_epochs)
+stop = timeit.default_timer()
+print("Time: ", round((stop - start),2), "seconds")
+
+# Final evaluation of the model
+scores = basic_model.evaluate(X_test, y_test, batch_size=batchsize)
+print("The Accuracy For Basic CNN Model for INbreast Dataset:", round(scores[1]*100,3), "%")
+
+# visualizing losses and accuracy
+train_accuracy = hist.history['accuracy']
+val_accuracy = hist.history['val_accuracy']
+train_loss = hist.history['loss']
+val_loss = hist.history['val_loss']
+
+# Losses
+xc = range(num_of_epochs)
+plt.figure(figsize=(5,7))
+plt.plot(xc, val_loss)
+plt.plot(xc, train_loss)
+plt.xlabel('Number of Epochs')
+plt.ylabel('Loss')
+plt.legend(['Training Loss','Validation Loss'], loc=3)
+plt.title('Training Loss V/s Validation Loss')
+plt.grid(True)
+
+# Accuracy
+xc = range(num_of_epochs)
+plt.figure(figsize=(5,7))
+plt.plot(xc, val_accuracy)
+plt.plot(xc, train_accuracy)
+plt.xlabel('Number of Epochs')
+plt.ylabel('Accuracy')
+plt.legend(['Training Acc','Validation Acc'], loc=4)
+plt.title('Training Accuracy V/s Validation Accuracy')
+plt.grid(True)
+
+# Testing a random image in INbreast Data
+print("Testing a Random Malignant Image in INbreast Dataset -")
+loc = 'E:/NN project/Dataset of Mammography with Benign Malignant Breast Masses/INbreast Dataset/test/Malignant Masses/20586934 (18).png'
+loc2 = 'E:/NN project/Dataset of Mammography with Benign Malignant Breast Masses/INbreast Dataset/test/Benign Masses/20587902 (64).png'
+test_image = cv2.imread(loc2)
+test_image= cv2.resize(test_image, (140,92))
+test_image = np.array(test_image)
+test_image = test_image.astype('float32')
+test_image = test_image/255
+test_image = np.expand_dims(test_image, axis=0)
+print("Shape of test image -", test_image.shape)
+print("Predicted accuracies -", basic_model.predict(test_image))
+predict_x_value = basic_model.predict(test_image) 
+classes_x=np.argmax(predict_x_value, axis=1)
+print("Predicted class -", classes_x)
+
+# Classification Report 
+y_pred_value = basic_model.predict(X_test)
+yhat_classes = np.argmax(y_pred_value,axis=1)
+
+y_test_value = np.argmax(y_test, axis=1)
+print(classification_report(y_test_value, yhat_classes))
+
+#### Advanced CNN model for INbreast Dataset - Adding more layers to the model
+def adv_breastCancer_model():
+	adv_model = Sequential()
+	adv_model.add(Conv2D(32, (3, 3), input_shape=(92,140,3), activation='relu', padding="same"))
+	adv_model.add(MaxPooling2D(pool_size=(2, 2)))
+	adv_model.add(Conv2D(32, (3, 3), activation='relu', padding = 'same'))  
+	adv_model.add(MaxPooling2D(pool_size=(2, 2)))
+	adv_model.add(Conv2D(64, (3, 3), activation='relu', padding = 'same'))  ## new layer added
+	adv_model.add(MaxPooling2D(pool_size=(2, 2)))
+	adv_model.add(Conv2D(128, (3, 3), activation='relu', padding = 'same'))  ## new layer added
+	adv_model.add(MaxPooling2D(pool_size=(2, 2)))
+	adv_model.add(Dropout(0.5))
+	adv_model.add(Flatten())
+	adv_model.add(Dropout(0.5))
+	adv_model.add(Dense(50, activation='relu'))		 ## new layer added
+	adv_model.add(Dropout(0.2))
+	adv_model.add(Dense(number_of_classes, activation='softmax'))
+
+	adv_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+	return adv_model
+
+# Building the model
+adv_model = adv_breastCancer_model()
+adv_model.summary()
+
+# Fitting the CNN model
+start = timeit.default_timer()
+adv_hist = adv_model.fit(X_train, y_train, validation_data=(X_valid, y_valid), 
+                            batch_size=batchsize, epochs=num_of_epochs)
+stop = timeit.default_timer()
+print("Time: ", round((stop - start),2), "seconds")
+
+# Final evaluation of the model
+adv_scores = adv_model.evaluate(X_test, y_test, batch_size=batchsize)
+print("The Accuracy For Advanced CNN Model for INbreast Dataset:", round(adv_scores[1]*100,3), "%")
+
+# visualizing losses and accuracy
+train_accuracy = adv_hist.history['accuracy']
+val_accuracy = adv_hist.history['val_accuracy']
+train_loss = adv_hist.history['loss']
+val_loss = adv_hist.history['val_loss']
+
+# Losses
+xc = range(num_of_epochs)
+plt.figure(figsize=(5,7))
+plt.plot(xc, val_loss)
+plt.plot(xc, train_loss)
+plt.xlabel('Number of Epochs')
+plt.ylabel('Loss')
+plt.legend(['Training Loss','Validation Loss'], loc=3)
+plt.title('Training Loss V/s Validation Loss')
+plt.grid(True)
+
+# Accuracy
+xc = range(num_of_epochs)
+plt.figure(figsize=(5,7))
+plt.plot(xc, val_accuracy)
+plt.plot(xc, train_accuracy)
+plt.xlabel('Number of Epochs')
+plt.ylabel('Accuracy')
+plt.legend(['Training Acc','Validation Acc'], loc=4)
+plt.title('Training Accuracy V/s Validation Accuracy')
+plt.grid(True)
+
+# Testing a random image in INbreast Data
+print("Testing a Random Malignant Image in INbreast Dataset -")
+loc = 'E:/NN project/Dataset of Mammography with Benign Malignant Breast Masses/INbreast Dataset/test/Malignant Masses/20586934 (18).png'
+loc2 = 'E:/NN project/Dataset of Mammography with Benign Malignant Breast Masses/INbreast Dataset/test/Benign Masses/20587902 (64).png'
+test_image = cv2.imread(loc)
+test_image = cv2.resize(test_image, (140,92))
+test_image = np.array(test_image)
+test_image = test_image.astype('float32')
+test_image = test_image/255
+test_image = np.expand_dims(test_image, axis=0)
+print("Shape of test image -", test_image.shape)
+print("Predicted accuracies -", adv_model.predict(test_image))
+predict_x_value = adv_model.predict(test_image) 
+classes_x=np.argmax(predict_x_value, axis=1)
+print("Predicted class -", classes_x)
+
+# Classification Report 
+y_pred_value = adv_model.predict(X_test, verbose=1)
+yhat_classes = np.argmax(y_pred_value, axis=1)
+
+y_test_value = np.argmax(y_test, axis=1)
+print(classification_report(y_test_value, yhat_classes))
